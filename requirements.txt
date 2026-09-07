@@ -1,0 +1,26 @@
+# Computer vision
+opencv-python-headless>=4.9,<5
+insightface>=0.7.3,<0.8
+onnxruntime>=1.17,<2
+numpy>=1.26,<2
+Pillow>=10.2,<11
+ImageHash>=4.3,<5
+
+# Reverse image search
+google-cloud-vision>=3.7,<4
+
+# Candidate retrieval (Phase 2 — single explicitly-approved candidate only)
+requests>=2.31,<3
+
+# Data / evidence
+pydantic>=2.6,<3
+
+# CLI
+typer>=0.9,<1
+rich>=13.7,<14
+
+# Configuration
+python-dotenv>=1.0,<2
+
+# Testing
+pytest>=8.0,<9

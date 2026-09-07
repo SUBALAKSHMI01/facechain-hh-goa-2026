@@ -1,0 +1,28 @@
+# Secrets / credentials — never commit
+.env
+*.env
+*credentials*.json
+*service-account*.json
+*key*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# InsightFace model cache (large binary files, fetched on first run)
+.insightface/
+
+# Generated artifacts
+artifacts/evidence/*.json
+artifacts/logs/*.log
+examples/output/*
+
+# OS
+.DS_Store
