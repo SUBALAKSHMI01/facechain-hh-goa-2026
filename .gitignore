@@ -23,6 +23,10 @@ dist/
 artifacts/evidence/*.json
 artifacts/logs/*.log
 examples/output/*
+# Don't commit real test images, but keep the input/ directory tracked
+# (the README there explains the intended use).
+examples/input/*
+!examples/input/.gitkeep
 
 # OS
 .DS_Store
