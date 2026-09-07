@@ -11,7 +11,7 @@ from rich.table import Table
 
 from facechain.pipeline import PipelineError, run_phase1_pipeline
 
-app = typer.Typer(help="FaceChain — Vision -> Search -> Proof -> Chain (Phase 1)")
+app = typer.Typer(help="FaceChain — Vision -> Search -> Proof -> Chain (Phases 1+2+3)")
 console = Console()
 
 
@@ -84,7 +84,7 @@ def analyze(
     console.print(f"      [green]✓[/green] Evidence SHA-256: {result.built_evidence.evidence_hash}")
 
     console.print(
-        "\n[dim]Blockchain anchoring (Sepolia) is not implemented in Phase 1.[/dim]"
+        "\n[dim]Run `python main.py anchor <evidence.json>` to anchor this on Sepolia (Phase 3).[/dim]"
     )
 
 
@@ -145,8 +145,150 @@ def verify(
     console.print(f"      [green]✓[/green] Evidence SHA-256: {result.evidence_hash}")
 
     console.print(
-        "\n[dim]Blockchain anchoring (Sepolia) is not implemented yet.[/dim]"
+        "\n[dim]Run `python main.py verify-onchain <verification.json>` to verify on Sepolia (Phase 3).[/dim]"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — blockchain anchoring (`anchor`) and on-chain verification
+# (`verify-onchain`). These commands are purely additive: they neither
+# read nor modify any of the Phase 1/Phase 2 evidence files' contents.
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def anchor(
+    evidence: Path = typer.Argument(
+        ...,
+        exists=True,
+        help="Path to a FaceChain evidence.json (Phase 1 or Phase 2).",
+    ),
+) -> None:
+    """Anchor an evidence file's SHA-256 on Ethereum Sepolia.
+
+    Reads `evidence`, extracts the `evidenceHash` and the first social
+    candidate URL, derives a `sourceHash = SHA-256(normalized URL)`,
+    and submits a signed transaction to the deployed
+    `EvidenceRegistry` contract. Prints the transaction hash and the
+    block number on success.
+    """
+    from facechain.blockchain import (
+        BlockchainConfigError,
+        BlockchainError,
+        BlockchainTransactionError,
+        EthereumClient,
+        EvidenceRegistryContract,
+        InvalidEvidenceFileError,
+    )
+
+    _banner()
+
+    try:
+        client = EthereumClient()
+        client.require_fully_configured()
+    except BlockchainConfigError as exc:
+        console.print(f"[bold red]✗ {exc}[/bold red]")
+        raise typer.Exit(code=1)
+
+    contract = EvidenceRegistryContract(client)
+
+    console.print("\n[bold]\\[1/3] Evidence file[/bold]")
+    console.print(f"      [green]✓[/green] {evidence}")
+
+    console.print("\n[bold]\\[2/3] Connection[/bold]")
+    info = client.connection_info()
+    console.print(f"      [green]✓[/green] RPC: {info.rpc_url}")
+    console.print(f"      [green]✓[/green] Chain ID: {info.chain_id}")
+    console.print(f"      [green]✓[/green] Submitter: {info.submitter_address}")
+    console.print(f"      [green]✓[/green] Contract: {info.contract_address}")
+
+    try:
+        result = contract.register_evidence_from_file(evidence)
+    except InvalidEvidenceFileError as exc:
+        console.print(f"[bold red]✗ Bad evidence file:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    except BlockchainTransactionError as exc:
+        console.print(f"[bold red]✗ Transaction failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    except BlockchainError as exc:
+        console.print(f"[bold red]✗ Blockchain error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    console.print("\n[bold]\\[3/3] Anchored[/bold]")
+    console.print(f"      [green]✓[/green] Evidence hash: {result.evidence_hash}")
+    console.print(f"      [green]✓[/green] Source hash:   {result.source_hash}")
+    console.print(f"      [green]✓[/green] TX hash:       {result.transaction_hash}")
+    console.print(f"      [green]✓[/green] Block:         {result.block_number}")
+    console.print(
+        f"\n[green]TAMPER-EVIDENT PROOF ANCHORED ON SEPOLIA[/green]"
+    )
+
+
+@app.command()
+def verify_onchain(
+    evidence: Path = typer.Argument(
+        ...,
+        exists=True,
+        help="Path to a FaceChain evidence.json to verify against Sepolia.",
+    ),
+) -> None:
+    """Re-derive an evidence file's hash and check it against Sepolia.
+
+    Recomputes the canonical SHA-256 of the file, reads the
+    matching on-chain `getEvidence(evidenceHash)` record, and prints
+    one of three outcomes: VERIFIED / TAMPERED / NOT_ANCHORED.
+    """
+    from facechain.blockchain import (
+        BlockchainConfigError,
+        InvalidEvidenceFileError,
+        VerificationStatus,
+        verify_evidence_file,
+    )
+
+    _banner()
+
+    try:
+        report = verify_evidence_file(evidence)
+    except InvalidEvidenceFileError as exc:
+        console.print(f"[bold red]✗ Bad evidence file:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    except BlockchainConfigError as exc:
+        console.print(f"[bold red]✗ {exc}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print("\n[bold]\\[1/3] Evidence file[/bold]")
+    console.print(f"      [green]✓[/green] {report.evidence_path}")
+    console.print(f"      [green]✓[/green] Recomputed SHA-256: {report.recomputed_evidence_hash}")
+    if report.claimed_evidence_hash:
+        match = report.claimed_evidence_hash.lower() == report.recomputed_evidence_hash.lower()
+        marker = "[green]✓[/green]" if match else "[red]✗[/red]"
+        console.print(f"      {marker} Claimed 'evidenceHash': {report.claimed_evidence_hash}")
+
+    console.print("\n[bold]\\[2/3] On-chain record[/bold]")
+    if report.on_chain_record is None:
+        console.print("      [yellow]![/yellow] No Sepolia record found for this evidence hash.")
+    else:
+        rec = report.on_chain_record
+        console.print(f"      [green]✓[/green] evidenceHash: {rec.evidence_hash}")
+        console.print(f"      [green]✓[/green] sourceHash:   {rec.source_hash}")
+        console.print(f"      [green]✓[/green] timestamp:    {rec.timestamp}")
+        console.print(f"      [green]✓[/green] submitter:    {rec.submitter}")
+
+    console.print("\n[bold]\\[3/3] Result[/bold]")
+    for note in report.notes:
+        console.print(f"      [dim]• {note}[/dim]")
+
+    if report.status == VerificationStatus.VERIFIED:
+        console.print(f"\n[bold green]RESULT  VERIFIED[/bold green]")
+    elif report.status == VerificationStatus.TAMPERED:
+        console.print(f"\n[bold red]RESULT  TAMPERED[/bold red]")
+    else:
+        console.print(f"\n[bold yellow]RESULT  NOT_ANCHORED[/bold yellow]")
+        raise typer.Exit(code=2)
+
+
+if __name__ == "__main__":
+    app()
 
 
 if __name__ == "__main__":

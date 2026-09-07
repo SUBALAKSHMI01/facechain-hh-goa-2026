@@ -22,5 +22,9 @@ rich>=13.7,<14
 # Configuration
 python-dotenv>=1.0,<2
 
+# Blockchain (Phase 3 — Sepolia anchoring + on-chain verification)
+web3>=6,<8
+eth-account>=0.10,<1
+
 # Testing
 pytest>=8.0,<9
